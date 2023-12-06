@@ -1,136 +1,74 @@
-use std::collections::BTreeMap;
-
-use itertools::Itertools;
-
 use crate::custom_error::AocError;
 
-#[derive(Debug)]
-enum Value {
-    Symbol(char),
-    Empty,
-    Number(u32),
+#[tracing::instrument]
+pub fn process(_input: &str) -> miette::Result<u32, AocError> {
+    let input = augment_input(_input);
+    let valid_numbers = get_valid_numbers(&input);
+    Ok(valid_numbers.iter().sum())
 }
 
-#[tracing::instrument]
-pub fn process(
-    input: &str,
-) -> miette::Result<String, AocError> {
-    // sum part numbers
-    let map = input
-        .lines()
-        .enumerate()
-        .flat_map(|(y, line)| {
-            line.chars().enumerate().map(
-                move |(x, character)| {
-                    (
-                (y as i32,x as i32),
-                match character {
-                    '.' => Value::Empty,
-                    c if c.is_ascii_digit() => {
-                        Value::Number(
-                            c.to_digit(10).expect(
-                                "should be a number",
-                            ),
-                        )
-                    }
-                    c => Value::Symbol(c),
-                },
-            )
-                },
-            )
-        })
-        .collect::<BTreeMap<(i32, i32), Value>>();
+fn augment_input(input: &str) -> String {
+    let mut output = String::new();
+    let first_line = String::from(".").repeat(input.lines().next().unwrap().len() + 2);
+    output.push_str(first_line.as_str());
+    output.push_str("\n");
+    for line in input.lines() {
+        output.push_str(String::from(".").as_str());
+        output.push_str(line.trim());
+        output.push_str(String::from(".").as_str());
+        output.push_str("\n");
+    }
+    output.push_str(first_line.as_str());
+    output.push_str("\n");
+    output
+}
 
-    let mut numbers: Vec<Vec<((i32, i32), u32)>> = vec![];
-    for ((y, x), value) in map.iter() {
-        if let Value::Number(num) = value {
-            match numbers.iter().last() {
-                Some(v) => {
-                    let last_num = v.iter().last();
-                    match last_num {
-                        Some(((last_num_x, _), _)) => {
-                            if last_num_x + 1 == *x {
-                                let last = numbers
-                                    .iter_mut()
-                                    .last()
-                                    .expect("should exist");
-                                last.push(((*x, *y), *num));
-                            } else {
-                                numbers.push(vec![(
-                                    (*x, *y),
-                                    *num,
-                                )]);
-                            }
-                        }
-                        None => unimplemented!(
-                            "shouldn't happen"
-                        ),
-                    }
+fn get_valid_numbers(input: &str) -> Vec<u32> {
+    let mut valid_numbers: Vec<u32> = Vec::new();
+    let lines_vec: Vec<&str> = input.lines().collect();
+
+    let mut s = String::new();
+    let mut is_valid = false;
+
+    for (i, line) in lines_vec.iter().enumerate() {        
+
+        for (j, c) in line.chars().enumerate() {
+            if c.is_digit(10) {
+                s.push(c);
+                if (!(lines_vec[i - 1].chars().nth(j - 1).unwrap()).is_digit(10)
+                    && (lines_vec[i - 1].chars().nth(j - 1).unwrap()) != '.')
+                    || (!(lines_vec[i - 1].chars().nth(j).unwrap()).is_digit(10)
+                        && (lines_vec[i - 1].chars().nth(j).unwrap()) != '.')
+                    || (!(lines_vec[i - 1].chars().nth(j + 1).unwrap()).is_digit(10)
+                        && (lines_vec[i - 1].chars().nth(j + 1).unwrap()) != '.')
+                    || (!(lines_vec[i + 1].chars().nth(j - 1).unwrap()).is_digit(10)
+                        && (lines_vec[i + 1].chars().nth(j - 1).unwrap()) != '.')
+                    || (!(lines_vec[i + 1].chars().nth(j).unwrap()).is_digit(10)
+                        && (lines_vec[i + 1].chars().nth(j).unwrap()) != '.')
+                    || (!(lines_vec[i + 1].chars().nth(j + 1).unwrap()).is_digit(10)
+                        && (lines_vec[i + 1].chars().nth(j + 1).unwrap()) != '.')
+                    || (!(lines_vec[i].chars().nth(j - 1).unwrap()).is_digit(10)
+                        && (lines_vec[i].chars().nth(j - 1).unwrap()) != '.')
+                    || (!(lines_vec[i].chars().nth(j + 1).unwrap()).is_digit(10)
+                        && (lines_vec[i].chars().nth(j + 1).unwrap()) != '.')
+                {
+                    is_valid = true;
                 }
-                None => {
-                    numbers.push(vec![((*x, *y), *num)]);
+            } else {
+                let num = if s.is_empty() {
+                    0
+                } else {
+                    s.parse::<u32>().unwrap()
+                };
+                if is_valid {
+                    valid_numbers.push(num);
                 }
+                s.clear();
+                is_valid = false;
             }
         }
     }
-
-    // map: entire grid
-    // numbers: sequential numbers
-    let mut total = 0;
-    for num_list in numbers {
-        // (x,y)
-        let positions = [
-            (1, 0),
-            (1, -1),
-            (0, -1),
-            (-1, -1),
-            (-1, 0),
-            (-1, 1),
-            (0, 1),
-            (1, 1),
-        ];
-        let num_positions: Vec<(i32, i32)> = num_list
-            .iter()
-            .map(|((y, x), _)| (*x, *y))
-            .collect();
-        let pos_to_check: Vec<(i32, i32)> = num_list
-            .iter()
-            .flat_map(|(pos, _)| {
-                positions.iter().map(|outer_pos| {
-                    // outer_pos.x + pos.x, .y + .y
-                    (
-                        outer_pos.0 + pos.1,
-                        outer_pos.1 + pos.0,
-                    )
-                })
-            })
-            .unique()
-            .filter(|num| !num_positions.contains(num))
-            .collect();
-
-        // dbg!(pos_to_check.len(), pos_to_check);
-        let is_part_number =
-            pos_to_check.iter().any(|pos| {
-                let value = map.get(pos);
-                #[allow(clippy::match_like_matches_macro)]
-                if let Some(Value::Symbol(_)) = value {
-                    true
-                } else {
-                    false
-                }
-            });
-
-        if is_part_number {
-            total += num_list
-                .iter()
-                .map(|(_, num)| num.to_string())
-                .collect::<String>()
-                .parse::<u32>()
-                .unwrap()
-        }
-    }
-
-    Ok(total.to_string())
+    valid_numbers
 }
 
 #[cfg(test)]
@@ -140,16 +78,42 @@ mod tests {
     #[test]
     fn test_process() -> miette::Result<()> {
         let input = "467..114..
-...*......
-..35..633.
-......#...
-617*......
-.....+.58.
-..592.....
-......755.
-...$.*....
-.664.598..";
-        assert_eq!("4361", process(input)?);
+        ...*......
+        ..35..633.
+        ......#...
+        617*......
+        .....+.58.
+        ..592.....
+        ......755.
+        ...$.*....
+        .664.598..";
+        assert_eq!(4361, process(input)?);
         Ok(())
+    }
+
+    #[test]
+    fn test_augment_input() {
+        let input = "123
+        456
+        789";
+        let expected = ".....\n.123.\n.456.\n.789.\n.....\n";
+        assert_eq!(expected, augment_input(input));
+    }
+
+    #[test]
+    fn test_get_valid_numbers() {
+        let input = "467..114..
+                           ...*......
+                           ..35..633.
+                           ......#...
+                           617*......
+                           .....+.58.
+                           ..592.....
+                           ......755.
+                           ...$.*....
+                           .664.598..";
+        let i = augment_input(input);
+        let expected = vec![467, 35, 633, 617, 592, 755, 664, 598];
+        assert_eq!(expected, get_valid_numbers(&i));
     }
 }

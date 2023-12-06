@@ -1,114 +1,67 @@
-use std::collections::BTreeMap;
-
-use nom::{
-    bytes::complete::tag,
-    character::complete::{
-        self, alpha1, digit1, line_ending,
-    },
-    multi::separated_list1,
-    sequence::{preceded, separated_pair},
-    IResult,
-};
-
-use crate::custom_error::AocError;
-
-#[derive(Debug)]
-struct Cube<'a> {
-    color: &'a str,
-    amount: u32,
-}
-
-#[derive(Debug)]
-struct Game<'a> {
-    #[allow(dead_code)]
-    id: &'a str,
-    rounds: Vec<Vec<Cube<'a>>>,
-}
-
-impl<'a> Game<'a> {
-    #[allow(dead_code)]
-    fn valid_for_cube_set(
-        &self,
-        map: &BTreeMap<&str, u32>,
-    ) -> Option<u32> {
-        self.rounds
-            .iter()
-            .all(|round| {
-                round.iter().all(|shown_cube| {
-                    shown_cube.amount
-                        <= *map
-                            .get(shown_cube.color)
-                            .expect("a valid cube")
-                })
-            })
-            .then_some(
-                self.id.parse::<u32>().expect(
-                    "game id should a parsable u32",
-                ),
-            )
-    }
-    fn minimum_cube_set(&self) -> u32 {
-        let map: BTreeMap<&str, u32> = BTreeMap::new();
-        self.rounds
-            .iter()
-            .fold(map, |mut acc, round| {
-                for cube in round.iter() {
-                    acc.entry(cube.color)
-                        .and_modify(|v| {
-                            *v = (*v).max(cube.amount);
-                        })
-                        .or_insert(cube.amount);
-                }
-                acc
-            })
-            .values()
-            .product()
-    }
-}
-
-// 4 red
-fn cube(input: &str) -> IResult<&str, Cube> {
-    let (input, (amount, color)) =
-        separated_pair(complete::u32, tag(" "), alpha1)(
-            input,
-        )?;
-    Ok((input, Cube { color, amount }))
-}
-// 3 blue, 4 red
-fn round(input: &str) -> IResult<&str, Vec<Cube>> {
-    let (input, cubes) =
-        separated_list1(tag(", "), cube)(input)?;
-    Ok((input, cubes))
-}
-// Game 1: 3 blue, 4 red; 1 red, 2 green, 6 blue; 2 green
-fn game(input: &str) -> IResult<&str, Game> {
-    let (input, id) =
-        preceded(tag("Game "), digit1)(input)?;
-    let (input, rounds) = preceded(
-        tag(": "),
-        separated_list1(tag("; "), round),
-    )(input)?;
-    Ok((input, Game { rounds, id }))
-}
-fn parse_games(input: &str) -> IResult<&str, Vec<Game>> {
-    let (input, games) =
-        separated_list1(line_ending, game)(input)?;
-    Ok((input, games))
-}
+use std::collections::HashMap;
 
 #[tracing::instrument]
-pub fn process(
-    input: &str,
-) -> miette::Result<String, AocError> {
-    let games = parse_games(input).expect("should parse");
-
-    Ok(games
-        .1
-        .iter()
-        .map(|game| game.minimum_cube_set())
-        .sum::<u32>()
-        .to_string())
+pub fn process(_input: &str) -> Result<i32, &str> {
+    let mut total = 0;
+    for line in _input.lines() {
+        let sets = get_game_sets(line)?;
+        let map = parse_sets(sets)?;
+        total += get_game_value(&map);
+    }
+    Ok(total)
 }
+
+fn get_game_id(input: &str) -> Result<i32, &str> {
+    let parts: Vec<&str> = input.split_terminator(":").collect();
+    if parts.len() < 2 {
+        return Err("Invalid input");
+    }
+    let id_parts: Vec<&str> = parts[0].split_whitespace().collect();
+    if id_parts.len() < 2 {
+        return Err("Invalid input");
+    }
+    let id = id_parts[1];
+    let num_id = id.parse::<i32>().unwrap_or(0);
+    Ok(num_id)
+}
+
+fn get_game_sets(input: &str) -> Result<Vec<&str>, &str> {
+    let parts: Vec<&str> = input.split_terminator(":").collect();
+    if parts.len() < 2 {
+        return Err("Invalid input");
+    }
+    let sets = parts[1].split_terminator(";").map(|s| s.trim()).collect();
+    Ok(sets)
+}
+
+fn parse_sets(sets: Vec<&str>) -> Result<HashMap<&str, i32>, &str> {
+    let mut map: HashMap<&str, i32> = HashMap::new();
+    for set in sets.iter() {
+        let games: Vec<&str> = set.split_terminator(",").map(|s| s.trim()).collect();
+        for game in games.iter()  {
+            let play: Vec<&str> = game.split_whitespace().collect();
+            let color = play[1];
+            let num = play[0].parse::<i32>().unwrap_or(0);
+            let map_val: i32 = if map.contains_key(&color) {
+                *map.get(&color).unwrap()
+            } else {
+                1
+            };
+            map.insert(color, if map_val > num { map_val } else { num });
+        }
+    }
+    Ok(map)
+}
+
+
+fn get_game_value(map: &HashMap<&str, i32>) -> i32 {
+    //12 red, 13 green, 14 blue
+    let red: &i32 = map.get("red").unwrap_or(&0);
+    let green = map.get("green").unwrap_or(&0);
+    let blue = map.get("blue").unwrap_or(&0);
+    *red * *green * *blue
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -117,11 +70,35 @@ mod tests {
     #[test]
     fn test_process() -> miette::Result<()> {
         let input = "Game 1: 3 blue, 4 red; 1 red, 2 green, 6 blue; 2 green
-Game 2: 1 blue, 2 green; 3 green, 4 blue, 1 red; 1 green, 1 blue
-Game 3: 8 green, 6 blue, 20 red; 5 blue, 4 red, 13 green; 5 green, 1 red
-Game 4: 1 green, 3 red, 6 blue; 3 green, 6 red; 3 green, 15 blue, 14 red
-Game 5: 6 red, 1 blue, 3 green; 2 blue, 1 red, 2 green";
-        assert_eq!("2286", process(input)?);
+        Game 2: 1 blue, 2 green; 3 green, 4 blue, 1 red; 1 green, 1 blue
+        Game 3: 8 green, 6 blue, 20 red; 5 blue, 4 red, 13 green; 5 green, 1 red
+        Game 4: 1 green, 3 red, 6 blue; 3 green, 6 red; 3 green, 15 blue, 14 red
+        Game 5: 6 red, 1 blue, 3 green; 2 blue, 1 red, 2 green";
+        assert_eq!(8, process(input).unwrap_or(0));
         Ok(())
     }
+
+    #[test]
+    fn test_get_game_id() {
+        let input = "Game 1: 3 blue, 4 red; 1 red, 2 green, 6 blue; 2 green";
+        assert_eq!(1, get_game_id(input).unwrap());
+    }
+
+    #[test]
+    fn test_get_game_sets() {
+        let input = "Game 1: 3 blue, 4 red; 1 red, 2 green, 6 blue; 2 green";
+        let expected = vec!["3 blue, 4 red", "1 red, 2 green, 6 blue", "2 green"];
+        assert_eq!(expected, get_game_sets(input).unwrap());
+    }
+
+    // #[test]
+    // fn test_parse_set() {
+    //     let input = "Game 1: 3 blue, 4 red; 1 red, 2 green";
+    //     let mut expected: HashMap<&str, i32> = HashMap::new();
+    //     expected.insert("blue", 3);
+    //     expected.insert("red", 5);
+    //     expected.insert("green", 2);
+    //     let sets = get_game_sets(input).unwrap();
+    //     assert_eq!(expected, parse_sets(sets).unwrap());
+    // }
 }
