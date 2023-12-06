@@ -1,6 +1,5 @@
 use std::ops::Range;
 
-use indicatif::ProgressIterator;
 use nom::{
     bytes::complete::{tag, take_until},
     character::complete::{space0, space1, u64},
@@ -8,6 +7,7 @@ use nom::{
     sequence::{pair, preceded},
     IResult,
 };
+use rayon::{iter::IntoParallelIterator, iter::ParallelIterator};
 
 use crate::custom_error::AocError;
 
@@ -95,30 +95,29 @@ fn parse_input(
 }
 
 fn walk_the_map(maps: &Vec<Vec<(Range<u64>, Range<u64>)>>, seeds_vec: Vec<Range<u64>>) -> Vec<u64> {
-    let mut min = u64::MAX;
-    let all_seeds: u64 = seeds_vec.iter().map(|seeds| {
-        seeds.clone().count() as u64
-    }).sum::<u64>();
-    let bar = indicatif::ProgressBar::new(all_seeds as u64);
-    seeds_vec.iter()
-    .for_each(|seeds| {
-        for seed in seeds.clone() {
+    // let mut min = u64::MAX;
+    let all_seeds = seeds_vec.iter().map(|s| s.clone().count() as u64).sum::<u64>();
+    let bar = indicatif::ProgressBar::new(all_seeds);
+    let min = seeds_vec.into_par_iter()
+    .map(|seeds| {
+        seeds.clone().into_par_iter()
+        .map(|seed| {
             bar.inc(1);
-            let mut location = seed;
+            let mut result = seed;
             for map in maps {
                 for (source, dest) in map {
-                    if source.contains(&location) {
-                        location = dest.start + (location - source.start);
+                    if source.contains(&result) {
+                        result = dest.start + (result - source.start);
                         break;
                     }
                 }
             }
-            if location < min {
-                min = location;
-            }
-        }
-    });
-    vec![min]
+            result
+        })
+    })
+    .flatten()
+    .collect();
+    min
 }
 
 #[cfg(test)]

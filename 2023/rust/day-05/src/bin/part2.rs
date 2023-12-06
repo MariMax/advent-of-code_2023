@@ -1,6 +1,5 @@
 use day_05::part2::process;
 use miette::Context;
-use rayon::iter::IntoParallelIterator;
 
 #[cfg(feature = "dhat-heap")]
 #[global_allocator]
